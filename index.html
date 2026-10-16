@@ -4,10 +4,10 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Vynqora AI</title>
+<title>Vynqora AI — AI Video Generator</title>
 <style>
 *{box-sizing:border-box}
-body{margin:0;background:#090914;color:white;font-family:Arial,sans-serif}
+body{margin:0;background:#090914;color:#fff;font-family:Arial,sans-serif}
 header{padding:22px 8%;border-bottom:1px solid #292940}
 .logo{font-size:27px;font-weight:bold;color:#bd91ff}
 main{max-width:760px;margin:55px auto;padding:20px}
@@ -17,52 +17,248 @@ h1 span{color:#b58aff}
 .panel{background:#151522;padding:25px;border:1px solid #34344c;border-radius:18px}
 label{display:block;margin:18px 0 9px;font-size:14px;font-weight:bold}
 textarea,select{width:100%;padding:13px;background:#0b0b15;color:white;border:1px solid #3a3a52;border-radius:9px;font-size:15px}
-textarea{height:120px}
+textarea{height:120px;resize:vertical}
 .grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
 button{width:100%;padding:16px;margin-top:24px;border:0;border-radius:10px;background:linear-gradient(90deg,#9655ef,#536dff);color:white;font-size:16px;font-weight:bold;cursor:pointer}
-#status{text-align:center;color:#c5a8ff;line-height:1.6;margin-top:18px}
+button:disabled{opacity:.6;cursor:wait}
+#status{text-align:center;color:#c5a8ff;line-height:1.6;margin-top:18px;overflow-wrap:anywhere}
+video{display:block;width:100%;margin-top:20px;border-radius:12px;background:#000}
 small{color:#999;line-height:1.6}
-@media(max-width:500px){.grid{grid-template-columns:1fr}h1{font-size:32px}}
+@media(max-width:500px){.grid{grid-template-columns:1fr}h1{font-size:32px}main{margin:25px auto}}
 </style>
 </head>
 <body>
 <header><div class="logo">✦ Vynqora AI</div></header>
+
 <main>
 <h1>Imagine It. <span>Generate It.</span></h1>
 <p class="sub">Your imagination. Your video.</p>
+
 <div class="panel">
 <label for="prompt">Describe your video</label>
 <textarea id="prompt" placeholder="A luxury car driving through a futuristic city at night..."></textarea>
+
 <div class="grid">
-<div><label for="duration">Video duration</label>
+<div>
+<label for="duration">Video duration</label>
 <select id="duration">
-<option value="1">1 minute</option>
-<option value="2">2 minutes</option>
-<option value="3">3 minutes</option>
-</select></div>
-<div><label for="ratio">Video format</label>
-<select id="ratio">
-<option>9:16 — Shorts / Reels</option>
-<option>16:9 — YouTube</option>
-<option>1:1 — Square</option>
-</select></div>
-<div><label for="voice">Voice-over</label>
-<select id="voice"><option>Include voice-over</option><option>No voice-over</option></select></div>
-<div><label for="music">Background music</label>
-<select id="music"><option>Include music</option><option>No music</option></select></div>
+<option value="21">Short clip</option>
+<option value="41">Longer clip (if supported)</option>
+<option value="81">Maximum clip (if supported)</option>
+</select>
 </div>
-<button onclick="generate()">✦ Generate Video</button>
-<div id="status"></div>
-<p><small>Video generation requires a connected AI service. This demo page does not generate videos yet.</small></p>
+
+<div>
+<label for="ratio">Video format</label>
+<select id="ratio">
+<option value="portrait">9:16 — Shorts / Reels</option>
+<option value="landscape">16:9 — YouTube</option>
+<option value="square">1:1 — Square</option>
+</select>
+</div>
+
+<div>
+<label for="voice">Voice-over</label>
+<select id="voice">
+<option value="yes">Include voice-over</option>
+<option value="no">No voice-over</option>
+</select>
+</div>
+
+<div>
+<label for="music">Background music</label>
+<select id="music">
+<option value="yes">Include music</option>
+<option value="no">No music</option>
+</select>
+</div>
+</div>
+
+<button id="generateBtn" onclick="generate()">✦ Generate Video</button>
+<div id="status" role="status"></div>
+<div id="videoResult"></div>
+<p><small>Video generation depends on the connected AI service, its availability, and its limits. Voice-over and music options are not yet connected.</small></p>
 </div>
 </main>
+
 <script>
-function generate(){
-let p=document.getElementById("prompt").value.trim();
-let d=document.getElementById("duration").value;
-let s=document.getElementById("status");
-if(!p){s.textContent="Please describe your video first.";return;}
-s.textContent="Your "+d+"-minute video request is ready. AI video generation is not connected yet.";
+const API = "/api/video";
+const HF = "https://numanajmal0-wan-video-api.hf.space";
+
+const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+function getVideoUrl(value) {
+  if (!value) return null;
+
+  if (typeof value === "string") {
+    if (/^https?:\/\//i.test(value) &&
+        /\.(mp4|webm|mov)(\?|$)/i.test(value)) return value;
+    return null;
+  }
+
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const found = getVideoUrl(item);
+      if (found) return found;
+    }
+    return null;
+  }
+
+  if (typeof value === "object") {
+    if (typeof value.url === "string") {
+      if (/^https?:\/\//i.test(value.url)) return value.url;
+      if (value.url.startsWith("/")) return HF + value.url;
+    }
+
+    if (typeof value.path === "string" &&
+        /\.(mp4|webm|mov)(\?|$)/i.test(value.path)) {
+      if (/^https?:\/\//i.test(value.path)) return value.path;
+      return HF + "/file=" + value.path.replace(/^\/+/, "");
+    }
+
+    for (const item of Object.values(value)) {
+      const found = getVideoUrl(item);
+      if (found) return found;
+    }
+  }
+
+  return null;
+}
+
+async function readResponse(response) {
+  const text = await response.text();
+
+  if (!response.ok) {
+    throw new Error("API request failed (" + response.status + "). Please try again later.");
+  }
+
+  return text;
+}
+
+async function generate() {
+  const prompt = document.getElementById("prompt").value.trim();
+  const status = document.getElementById("status");
+  const resultBox = document.getElementById("videoResult");
+  const button = document.getElementById("generateBtn");
+
+  if (!prompt) {
+    status.textContent = "Please describe your video first.";
+    return;
+  }
+
+  button.disabled = true;
+  resultBox.replaceChildren();
+  status.textContent = "⏳ Sending your prompt to the AI...";
+
+  try {
+    const ratio = document.getElementById("ratio").value;
+    let width = 480, height = 832;
+
+    if (ratio === "landscape") {
+      width = 832;
+      height = 480;
+    } else if (ratio === "square") {
+      width = 640;
+      height = 640;
+    }
+
+    const frames = Number(document.getElementById("duration").value);
+
+    const response = await fetch(API, {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({
+        prompt,
+        width,
+        height,
+        num_frames: frames,
+        steps: 20,
+        guidance_scale: 5,
+        seed: -1,
+        negative_prompt: "blurry, low quality, distorted, watermark"
+      })
+    });
+
+    const raw = await readResponse(response);
+    let startData;
+
+    try {
+      startData = JSON.parse(raw);
+    } catch {
+      throw new Error("The AI service returned an unexpected response.");
+    }
+
+    if (!startData.event_id) {
+      throw new Error(startData.error || "The AI did not return a generation ID.");
+    }
+
+    status.textContent = "🎬 AI is working on your video. This may take several minutes...";
+
+    for (let i = 0; i < 60; i++) {
+      await wait(5000);
+
+      const check = await fetch(API, {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({event_id: startData.event_id})
+      });
+
+      const stream = await readResponse(check);
+
+      if (stream.includes("event: error")) {
+        throw new Error("Video generation failed. The AI service may be busy.");
+      }
+
+      const events = stream.split(/\n\n+/);
+
+      for (const event of events) {
+        const dataLine = event.split("\n").find(line => line.startsWith("data:"));
+        if (!dataLine) continue;
+
+        const payload = dataLine.slice(5).trim();
+        let data;
+
+        try {
+          data = JSON.parse(payload);
+        } catch {
+          continue;
+        }
+
+        const videoUrl = getVideoUrl(data);
+
+        if (videoUrl) {
+          const video = document.createElement("video");
+          video.controls = true;
+          video.playsInline = true;
+          video.src = videoUrl;
+
+          const download = document.createElement("a");
+          download.href = videoUrl;
+          download.target = "_blank";
+          download.rel = "noopener";
+          download.textContent = "Open / download video";
+          download.style.cssText = "display:block;margin-top:14px;color:#c5a8ff";
+
+          resultBox.replaceChildren(video, download);
+          status.textContent = "✅ Video result received!";
+          return;
+        }
+
+        if (event.includes("event: complete")) {
+          throw new Error("AI finished, but the video link format was unexpected.");
+        }
+      }
+
+      status.textContent = "🎬 Generating video... (" + (i + 1) + "/60)";
+    }
+
+    throw new Error("Generation is taking too long. Please try again later.");
+
+  } catch (error) {
+    status.textContent = "❌ " + error.message;
+  } finally {
+    button.disabled = false;
+  }
 }
 </script>
 </body>
