@@ -162,7 +162,13 @@ async function generate() {
         await wait(5000);
         const check = await fetch(API,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({event_id:startData.event_id})});
         const stream = await readResponse(check);
-        if (stream.includes("event: error")) throw new Error("AI failed on clip " + (clip + 1) + ".");
+        if (stream.includes("event: error")) {
+          const errorEvent = stream.split(/\n\n+/).find(event => event.includes("event: error"));
+          const errorLine = errorEvent?.split("\n").find(line => line.startsWith("data:"));
+          let detail = errorLine ? errorLine.slice(5).trim() : "";
+          try { const parsed = JSON.parse(detail); detail = parsed.error || parsed.message || detail; } catch {}
+          throw new Error("AI server failed on clip " + (clip + 1) + (detail ? ": " + detail : "."));
+        }
         const events = stream.split(/\n\n+/);
         for (const event of events) {
           const dataLine = event.split("\n").find(line => line.startsWith("data:"));
