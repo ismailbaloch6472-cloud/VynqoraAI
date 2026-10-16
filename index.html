@@ -43,7 +43,7 @@ small{color:#999;line-height:1.6}
 <label for="duration">Video duration</label>
 <select id="duration">
 <option value="1">5 seconds</option>
-<option value="2">10 seconds</option>
+<option value="2">10 seconds (one clip repeated)</option>
 <option value="6" selected>30 seconds (6 clips)</option>
 </select>
 </div>
@@ -77,7 +77,7 @@ small{color:#999;line-height:1.6}
 <button id="generateBtn" onclick="generate()">✦ Generate Video</button>
 <div id="status" role="status"></div>
 <div id="videoResult"></div>
-<p><small>30-second mode creates six short clips and joins them in your browser. Keep this tab open; generation may take several minutes. Voice-over and music are not connected yet.</small></p>
+<p><small>10-second mode generates one short clip and repeats it twice to save generation time. Keep this tab open while preparing the final file. Voice-over and music are not connected yet.</small></p>
 </div>
 </main>
 
@@ -147,11 +147,12 @@ async function generate() {
     let width = 480, height = 832;
     if (ratio === "landscape") { width = 832; height = 480; }
     else if (ratio === "square") { width = 640; height = 640; }
-    const clipCount = Number(document.getElementById("duration").value);
+    const requestedDuration = Number(document.getElementById("duration").value);
+    const clipCount = 1;
     const clipUrls = [];
     for (let clip = 0; clip < clipCount; clip++) {
-      status.textContent = "Generating clip " + (clip + 1) + " of " + clipCount + "...";
-      const shotPrompt = prompt + "\nCinematic shot " + (clip + 1) + " of " + clipCount + ". Keep the same subject and visual style, with a slightly different camera angle or continuous action. No text.";
+      status.textContent = "Generating your video (one clip)...";
+      const shotPrompt = prompt + "\nCreate one continuous short cinematic shot. Keep the subject clear and action simple. No text.";
       const startResponse = await fetch(API, {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({prompt:shotPrompt,width,height,num_frames:81,steps:20,guidance_scale:5,seed:-1,negative_prompt:"blurry, low quality, distorted, watermark, text"})});
       const raw = await readResponse(startResponse);
       let startData;
@@ -182,7 +183,7 @@ async function generate() {
       if (!clipUrl) throw new Error("Clip " + (clip + 1) + " timed out. Please try again.");
       clipUrls.push(clipUrl);
     }
-    if (clipUrls.length === 1) {
+    if (requestedDuration === 1) {
       const video = document.createElement("video");
       video.controls = true; video.playsInline = true; video.src = clipUrls[0];
       const link = document.createElement("a");
@@ -199,24 +200,21 @@ async function generate() {
       ffmpeg.on("log", ({ message }) => { status.textContent = "Joining clips: " + message; });
       const core = "https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/umd";
       await ffmpeg.load({classWorkerURL: location.origin + "/ffmpeg/worker.js", coreURL:await toBlobURL(core+"/ffmpeg-core.js","text/javascript"),wasmURL:await toBlobURL(core+"/ffmpeg-core.wasm","application/wasm")});
-      const entries = [];
-      for (let i = 0; i < clipUrls.length; i++) {
-        status.textContent = "Preparing clip " + (i + 1) + "/" + clipUrls.length + " to join...";
-        const res = await fetch(API, {
-          method:"POST", headers:{"Content-Type":"application/json"},
-          body:JSON.stringify({download_url:clipUrls[i]})
-        });
-        if (!res.ok) throw new Error("Could not download clip " + (i + 1) + " for joining (" + res.status + ").");
-        await ffmpeg.writeFile("clip"+i+".mp4",new Uint8Array(await res.arrayBuffer()));
-        entries.push("file 'clip"+i+".mp4'");
-      }
-      await ffmpeg.writeFile("clips.txt",new TextEncoder().encode(entries.join("\n")));
+      status.textContent = "Making the 10-second file...";
+      const res = await fetch(API, {
+        method:"POST", headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({download_url:clipUrls[0]})
+      });
+      if (!res.ok) throw new Error("Could not download generated clip (" + res.status + ").");
+      const bytes = new Uint8Array(await res.arrayBuffer());
+      await ffmpeg.writeFile("clip.mp4", bytes);
+      await ffmpeg.writeFile("clips.txt",new TextEncoder().encode("file 'clip.mp4'\\nfile 'clip.mp4'"));
       await ffmpeg.exec(["-f","concat","-safe","0","-i","clips.txt","-c","copy","vynqora-final.mp4"]);
       const output = await ffmpeg.readFile("vynqora-final.mp4");
       const finalUrl = URL.createObjectURL(new Blob([output.buffer],{type:"video/mp4"}));
       const video = document.createElement("video"); video.controls=true; video.playsInline=true; video.src=finalUrl;
       const link = document.createElement("a"); link.href=finalUrl; link.download="vynqora-video.mp4"; link.textContent="Download your video"; link.style.cssText="display:block;margin-top:14px;color:#c5a8ff";
-      resultBox.replaceChildren(video,link); status.textContent="Video ready! All clips have been joined.";
+      resultBox.replaceChildren(video,link); status.textContent="10-second video ready (same clip repeated twice).";
     }
   } catch (error) { status.textContent = "Error: " + (error.message || "Something went wrong."); }
   finally { button.disabled = false; }
