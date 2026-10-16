@@ -30,7 +30,7 @@ export async function onRequestPost({ request }) {
 
     if (body.event_id) {
       const res = await fetch(
-        `${base}/gradio_api/call/generate/${encodeURIComponent(body.event_id)}`
+        `${base}/gradio_api/call/v2/generate/${encodeURIComponent(body.event_id)}`
       );
       return new Response(await res.text(), {
         status: res.status,
