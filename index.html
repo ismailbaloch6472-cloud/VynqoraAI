@@ -42,9 +42,9 @@ small{color:#999;line-height:1.6}
 <div>
 <label for="duration">Video duration</label>
 <select id="duration">
-<option value="21">Short clip</option>
-<option value="41">Longer clip (if supported)</option>
-<option value="81">Maximum clip (if supported)</option>
+<option value="1">5 seconds</option>
+<option value="2">10 seconds</option>
+<option value="6" selected>30 seconds (6 clips)</option>
 </select>
 </div>
 
@@ -77,7 +77,7 @@ small{color:#999;line-height:1.6}
 <button id="generateBtn" onclick="generate()">✦ Generate Video</button>
 <div id="status" role="status"></div>
 <div id="videoResult"></div>
-<p><small>Video generation depends on the connected AI service, its availability, and its limits. Voice-over and music options are not yet connected.</small></p>
+<p><small>30-second mode creates six short clips and joins them in your browser. Keep this tab open; generation may take several minutes. Voice-over and music are not connected yet.</small></p>
 </div>
 </main>
 
@@ -140,125 +140,65 @@ async function generate() {
   const status = document.getElementById("status");
   const resultBox = document.getElementById("videoResult");
   const button = document.getElementById("generateBtn");
-
-  if (!prompt) {
-    status.textContent = "Please describe your video first.";
-    return;
-  }
-
-  button.disabled = true;
-  resultBox.replaceChildren();
-  status.textContent = "⏳ Sending your prompt to the AI...";
-
+  if (!prompt) { status.textContent = "Please describe your video first."; return; }
+  button.disabled = true; resultBox.replaceChildren();
   try {
     const ratio = document.getElementById("ratio").value;
     let width = 480, height = 832;
-
-    if (ratio === "landscape") {
-      width = 832;
-      height = 480;
-    } else if (ratio === "square") {
-      width = 640;
-      height = 640;
-    }
-
-    const frames = Number(document.getElementById("duration").value);
-
-    const response = await fetch(API, {
-      method: "POST",
-      headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({
-        prompt,
-        width,
-        height,
-        num_frames: frames,
-        steps: 20,
-        guidance_scale: 5,
-        seed: -1,
-        negative_prompt: "blurry, low quality, distorted, watermark"
-      })
-    });
-
-    const raw = await readResponse(response);
-    let startData;
-
-    try {
-      startData = JSON.parse(raw);
-    } catch {
-      throw new Error("The AI service returned an unexpected response.");
-    }
-
-    if (!startData.event_id) {
-      throw new Error(startData.error || "The AI did not return a generation ID.");
-    }
-
-    status.textContent = "🎬 AI is working on your video. This may take several minutes...";
-
-    for (let i = 0; i < 60; i++) {
-      await wait(5000);
-
-      const check = await fetch(API, {
-        method: "POST",
-        headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({event_id: startData.event_id})
-      });
-
-      const stream = await readResponse(check);
-
-      if (stream.includes("event: error")) {
-        throw new Error("Video generation failed. The AI service may be busy.");
+    if (ratio === "landscape") { width = 832; height = 480; }
+    else if (ratio === "square") { width = 640; height = 640; }
+    const clipCount = Number(document.getElementById("duration").value);
+    const clipUrls = [];
+    for (let clip = 0; clip < clipCount; clip++) {
+      status.textContent = "Generating clip " + (clip + 1) + " of " + clipCount + "...";
+      const shotPrompt = prompt + "\nCinematic shot " + (clip + 1) + " of " + clipCount + ". Keep the same subject and visual style, with a slightly different camera angle or continuous action. No text.";
+      const startResponse = await fetch(API, {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({prompt:shotPrompt,width,height,num_frames:81,steps:20,guidance_scale:5,seed:-1,negative_prompt:"blurry, low quality, distorted, watermark, text"})});
+      const raw = await readResponse(startResponse);
+      let startData;
+      try { startData = JSON.parse(raw); } catch { throw new Error("Unexpected AI response."); }
+      if (!startData.event_id) throw new Error(startData.error || "AI did not return a generation ID.");
+      let clipUrl = null;
+      for (let i = 0; i < 60; i++) {
+        await wait(5000);
+        const check = await fetch(API,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({event_id:startData.event_id})});
+        const stream = await readResponse(check);
+        if (stream.includes("event: error")) throw new Error("AI failed on clip " + (clip + 1) + ".");
+        const events = stream.split(/\n\n+/);
+        for (const event of events) {
+          const dataLine = event.split("\n").find(line => line.startsWith("data:"));
+          if (!dataLine) continue;
+          try { clipUrl = getVideoUrl(JSON.parse(dataLine.slice(5).trim())); } catch {}
+          if (clipUrl) break;
+        }
+        if (clipUrl) break;
+        status.textContent = "Clip " + (clip + 1) + "/" + clipCount + " rendering (" + (i + 1) + "/60)...";
       }
-
-      const events = stream.split(/\n\n+/);
-
-      for (const event of events) {
-        const dataLine = event.split("\n").find(line => line.startsWith("data:"));
-        if (!dataLine) continue;
-
-        const payload = dataLine.slice(5).trim();
-        let data;
-
-        try {
-          data = JSON.parse(payload);
-        } catch {
-          continue;
-        }
-
-        const videoUrl = getVideoUrl(data);
-
-        if (videoUrl) {
-          const video = document.createElement("video");
-          video.controls = true;
-          video.playsInline = true;
-          video.src = videoUrl;
-
-          const download = document.createElement("a");
-          download.href = videoUrl;
-          download.target = "_blank";
-          download.rel = "noopener";
-          download.textContent = "Open / download video";
-          download.style.cssText = "display:block;margin-top:14px;color:#c5a8ff";
-
-          resultBox.replaceChildren(video, download);
-          status.textContent = "✅ Video result received!";
-          return;
-        }
-
-        if (event.includes("event: complete")) {
-          throw new Error("AI finished, but the video link format was unexpected.");
-        }
-      }
-
-      status.textContent = "🎬 Generating video... (" + (i + 1) + "/60)";
+      if (!clipUrl) throw new Error("Clip " + (clip + 1) + " timed out. Please try again.");
+      clipUrls.push(clipUrl);
     }
-
-    throw new Error("Generation is taking too long. Please try again later.");
-
-  } catch (error) {
-    status.textContent = "❌ " + error.message;
-  } finally {
-    button.disabled = false;
-  }
+    status.textContent = "Loading video joiner...";
+    const { FFmpeg } = await import("https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.10/dist/esm/index.js");
+    const { toBlobURL } = await import("https://cdn.jsdelivr.net/npm/@ffmpeg/util@0.12.1/dist/esm/index.js");
+    const ffmpeg = new FFmpeg();
+    const core = "https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/umd";
+    await ffmpeg.load({coreURL:await toBlobURL(core+"/ffmpeg-core.js","text/javascript"),wasmURL:await toBlobURL(core+"/ffmpeg-core.wasm","application/wasm")});
+    const entries = [];
+    for (let i = 0; i < clipUrls.length; i++) {
+      status.textContent = "Preparing clip " + (i + 1) + "/" + clipUrls.length + " to join...";
+      const res = await fetch(clipUrls[i]);
+      if (!res.ok) throw new Error("Could not download clip " + (i + 1) + " for joining.");
+      await ffmpeg.writeFile("clip"+i+".mp4",new Uint8Array(await res.arrayBuffer()));
+      entries.push("file 'clip"+i+".mp4'");
+    }
+    await ffmpeg.writeFile("clips.txt",new TextEncoder().encode(entries.join("\n")));
+    await ffmpeg.exec(["-f","concat","-safe","0","-i","clips.txt","-c","copy","vynqora-final.mp4"]);
+    const output = await ffmpeg.readFile("vynqora-final.mp4");
+    const finalUrl = URL.createObjectURL(new Blob([output.buffer],{type:"video/mp4"}));
+    const video = document.createElement("video"); video.controls=true; video.playsInline=true; video.src=finalUrl;
+    const link = document.createElement("a"); link.href=finalUrl; link.download="vynqora-video.mp4"; link.textContent="Download your video"; link.style.cssText="display:block;margin-top:14px;color:#c5a8ff";
+    resultBox.replaceChildren(video,link); status.textContent="Video ready! All clips have been joined.";
+  } catch (error) { status.textContent = "Error: " + (error.message || "Something went wrong."); }
+  finally { button.disabled = false; }
 }
 </script>
 </body>
