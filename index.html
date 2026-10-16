@@ -185,8 +185,11 @@ async function generate() {
     const entries = [];
     for (let i = 0; i < clipUrls.length; i++) {
       status.textContent = "Preparing clip " + (i + 1) + "/" + clipUrls.length + " to join...";
-      const res = await fetch(clipUrls[i]);
-      if (!res.ok) throw new Error("Could not download clip " + (i + 1) + " for joining.");
+      const res = await fetch(API, {
+        method:"POST", headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({download_url:clipUrls[i]})
+      });
+      if (!res.ok) throw new Error("Could not download clip " + (i + 1) + " for joining (" + res.status + ").");
       await ffmpeg.writeFile("clip"+i+".mp4",new Uint8Array(await res.arrayBuffer()));
       entries.push("file 'clip"+i+".mp4'");
     }
