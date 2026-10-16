@@ -188,7 +188,7 @@ async function generate() {
     const ffmpeg = new FFmpeg();
     ffmpeg.on("log", ({ message }) => { status.textContent = "Joining clips: " + message; });
     const core = "https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/umd";
-    await ffmpeg.load({workerLoadURL: location.origin + "/ffmpeg/worker.js", coreURL:await toBlobURL(core+"/ffmpeg-core.js","text/javascript"),wasmURL:await toBlobURL(core+"/ffmpeg-core.wasm","application/wasm")});
+    await ffmpeg.load({classWorkerURL: location.origin + "/ffmpeg/worker.js", coreURL:await toBlobURL(core+"/ffmpeg-core.js","text/javascript"),wasmURL:await toBlobURL(core+"/ffmpeg-core.wasm","application/wasm")});
     const entries = [];
     for (let i = 0; i < clipUrls.length; i++) {
       status.textContent = "Preparing clip " + (i + 1) + "/" + clipUrls.length + " to join...";
