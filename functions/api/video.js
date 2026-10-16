@@ -1,13 +1,15 @@
 
 export async function onRequestPost({ request }) {
+  const base = "https://numanajmal0-wan-video-api.hf.space";
+
   try {
     const body = await request.json();
-    const base = "https://numanajmal0-wan-video-api.hf.space";
 
     if (body.event_id) {
       const res = await fetch(
         `${base}/gradio_api/call/generate/${encodeURIComponent(body.event_id)}`
       );
+
       return new Response(await res.text(), {
         status: res.status,
         headers: { "Content-Type": "text/event-stream" }
@@ -25,29 +27,29 @@ export async function onRequestPost({ request }) {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        data: [
-          "wan-base",
-          body.prompt,
-          body.negative_prompt || "",
-          body.width || 832,
-          body.height || 480,
-          body.num_frames || 21,
-          body.steps || 20,
-          body.guidance_scale || 5,
-          body.seed ?? -1,
-          body.lora_scale ?? 1,
-          body.custom_ckpt || ""
-        ]
+        model_key: "wan-base",
+        prompt: body.prompt,
+        negative_prompt: body.negative_prompt || "",
+        width: body.width || 480,
+        height: body.height || 832,
+        num_frames: body.num_frames || 21,
+        steps: body.steps || 20,
+        guidance_scale: body.guidance_scale || 5,
+        seed: body.seed ?? -1,
+        lora_scale: 1,
+        custom_ckpt: ""
       })
     });
 
-    return new Response(await res.text(), {
+    const result = await res.text();
+
+    return new Response(result, {
       status: res.status,
       headers: { "Content-Type": "application/json" }
     });
-  } catch {
+  } catch (error) {
     return Response.json(
-      { error: "Video API request failed." },
+      { error: String(error.message || "API connection failed.") },
       { status: 500 }
     );
   }
