@@ -182,31 +182,42 @@ async function generate() {
       if (!clipUrl) throw new Error("Clip " + (clip + 1) + " timed out. Please try again.");
       clipUrls.push(clipUrl);
     }
-    status.textContent = "Loading video joiner...";
-    const { FFmpeg } = await import("https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.10/dist/esm/index.js");
-    const { toBlobURL } = await import("https://cdn.jsdelivr.net/npm/@ffmpeg/util@0.12.1/dist/esm/index.js");
-    const ffmpeg = new FFmpeg();
-    ffmpeg.on("log", ({ message }) => { status.textContent = "Joining clips: " + message; });
-    const core = "https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/umd";
-    await ffmpeg.load({classWorkerURL: location.origin + "/ffmpeg/worker.js", coreURL:await toBlobURL(core+"/ffmpeg-core.js","text/javascript"),wasmURL:await toBlobURL(core+"/ffmpeg-core.wasm","application/wasm")});
-    const entries = [];
-    for (let i = 0; i < clipUrls.length; i++) {
-      status.textContent = "Preparing clip " + (i + 1) + "/" + clipUrls.length + " to join...";
-      const res = await fetch(API, {
-        method:"POST", headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({download_url:clipUrls[i]})
-      });
-      if (!res.ok) throw new Error("Could not download clip " + (i + 1) + " for joining (" + res.status + ").");
-      await ffmpeg.writeFile("clip"+i+".mp4",new Uint8Array(await res.arrayBuffer()));
-      entries.push("file 'clip"+i+".mp4'");
+    if (clipUrls.length === 1) {
+      const video = document.createElement("video");
+      video.controls = true; video.playsInline = true; video.src = clipUrls[0];
+      const link = document.createElement("a");
+      link.href = clipUrls[0]; link.target = "_blank"; link.rel = "noopener";
+      link.download = "vynqora-video.mp4"; link.textContent = "Open / download your video";
+      link.style.cssText = "display:block;margin-top:14px;color:#c5a8ff";
+      resultBox.replaceChildren(video, link);
+      status.textContent = "Video ready!";
+    } else {
+      status.textContent = "Loading video joiner...";
+      const { FFmpeg } = await import("https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.10/dist/esm/index.js");
+      const { toBlobURL } = await import("https://cdn.jsdelivr.net/npm/@ffmpeg/util@0.12.1/dist/esm/index.js");
+      const ffmpeg = new FFmpeg();
+      ffmpeg.on("log", ({ message }) => { status.textContent = "Joining clips: " + message; });
+      const core = "https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/umd";
+      await ffmpeg.load({classWorkerURL: location.origin + "/ffmpeg/worker.js", coreURL:await toBlobURL(core+"/ffmpeg-core.js","text/javascript"),wasmURL:await toBlobURL(core+"/ffmpeg-core.wasm","application/wasm")});
+      const entries = [];
+      for (let i = 0; i < clipUrls.length; i++) {
+        status.textContent = "Preparing clip " + (i + 1) + "/" + clipUrls.length + " to join...";
+        const res = await fetch(API, {
+          method:"POST", headers:{"Content-Type":"application/json"},
+          body:JSON.stringify({download_url:clipUrls[i]})
+        });
+        if (!res.ok) throw new Error("Could not download clip " + (i + 1) + " for joining (" + res.status + ").");
+        await ffmpeg.writeFile("clip"+i+".mp4",new Uint8Array(await res.arrayBuffer()));
+        entries.push("file 'clip"+i+".mp4'");
+      }
+      await ffmpeg.writeFile("clips.txt",new TextEncoder().encode(entries.join("\n")));
+      await ffmpeg.exec(["-f","concat","-safe","0","-i","clips.txt","-c","copy","vynqora-final.mp4"]);
+      const output = await ffmpeg.readFile("vynqora-final.mp4");
+      const finalUrl = URL.createObjectURL(new Blob([output.buffer],{type:"video/mp4"}));
+      const video = document.createElement("video"); video.controls=true; video.playsInline=true; video.src=finalUrl;
+      const link = document.createElement("a"); link.href=finalUrl; link.download="vynqora-video.mp4"; link.textContent="Download your video"; link.style.cssText="display:block;margin-top:14px;color:#c5a8ff";
+      resultBox.replaceChildren(video,link); status.textContent="Video ready! All clips have been joined.";
     }
-    await ffmpeg.writeFile("clips.txt",new TextEncoder().encode(entries.join("\n")));
-    await ffmpeg.exec(["-f","concat","-safe","0","-i","clips.txt","-c","copy","vynqora-final.mp4"]);
-    const output = await ffmpeg.readFile("vynqora-final.mp4");
-    const finalUrl = URL.createObjectURL(new Blob([output.buffer],{type:"video/mp4"}));
-    const video = document.createElement("video"); video.controls=true; video.playsInline=true; video.src=finalUrl;
-    const link = document.createElement("a"); link.href=finalUrl; link.download="vynqora-video.mp4"; link.textContent="Download your video"; link.style.cssText="display:block;margin-top:14px;color:#c5a8ff";
-    resultBox.replaceChildren(video,link); status.textContent="Video ready! All clips have been joined.";
   } catch (error) { status.textContent = "Error: " + (error.message || "Something went wrong."); }
   finally { button.disabled = false; }
 }
